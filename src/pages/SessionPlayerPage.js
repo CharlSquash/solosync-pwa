@@ -34,7 +34,6 @@ const prepBgClass = 'bg-amber-800';
 // --- Beep Frequencies ---
 const warningBeepFreq = 988; // B5
 const endRestBeepFreq = 1318; // E6 (higher pitch)
-// const endActivityBeepFreq = 1046; // C6 - REMOVED as unused
 
 function SessionPlayerPage() {
     const { routineId } = useParams();
@@ -78,58 +77,59 @@ function SessionPlayerPage() {
         setIsLoading(true); setError(null); setRoutine(null);
         setCurrentStepIndex(-1); setCurrentPhaseDuration(0); setIsResting(false);
         setIsSessionActive(false); setTimerKey(0);
-        releaseWakeLock(); // Release lock on new routine load
+        releaseWakeLock();
 
         getRoutineDetails(routineId)
-            // *** Removed extra whitespace before .then, .catch, .finally ***
             .then(response => {
-                 if (!response.data?.routine_steps || response.data.routine_steps.length === 0) { setError("Routine has no steps defined."); setRoutine(null); }
-                 else { setRoutine(response.data); }
+                if (!response.data?.routine_steps || response.data.routine_steps.length === 0) { setError("Routine has no steps defined."); setRoutine(null); }
+                else { setRoutine(response.data); }
             })
             .catch(err => {
-                  console.error(`Failed fetch: ${err}`);
-                  if (err.response && err.response.status === 404) { setError(`Routine with ID ${routineId} not found or not assigned to you.`); }
-                  else { setError("Failed to load session details."); }
+                console.error(`Failed fetch: ${err}`);
+                if (err.response && err.response.status === 404) { setError(`Routine with ID ${routineId} not found or not assigned to you.`); }
+                else { setError("Failed to load session details."); }
             })
             .finally(() => setIsLoading(false));
-    }, [routineId, releaseWakeLock]); // Added releaseWakeLock dependency
+    }, [routineId, releaseWakeLock]);
 
     // --- Effect: Save Toggle Preferences ---
     useEffect(() => { try { localStorage.setItem('ttsEnabled', isTtsEnabled); } catch (e) { console.error("Could not save TTS setting", e); } }, [isTtsEnabled]);
     useEffect(() => { try { localStorage.setItem('beepEnabled', isBeepEnabled); } catch (e) { console.error("Could not save Beep setting", e); } }, [isBeepEnabled]);
 
     // --- Logic Callbacks ---
-     const moveToNextStep = useCallback(() => {
-         console.log("moveToNextStep called. Current index:", currentStepIndex);
-         if (!routine) return;
-         const nextIndex = currentStepIndex + 1;
-         if (nextIndex >= routine.routine_steps.length) {
-             console.log("Session Finished!"); setIsSessionActive(false); setIsResting(false);
-             speak("Session finished."); releaseWakeLock(); navigate(`/log-session/${routineId}`);
-         } else {
-             const nextStepDetails = routine.routine_steps[nextIndex];
-             console.log("Moving to next drill:", nextStepDetails?.drill_name);
-             speak(nextStepDetails?.drill_name || 'Next Drill', 300);
-             setCurrentStepIndex(nextIndex); setIsResting(false);
-             setCurrentPhaseDuration(nextStepDetails?.duration_seconds || 1);
-             setTimerKey(prevKey => prevKey + 1);
-         }
-     }, [currentStepIndex, routine, navigate, routineId, speak, releaseWakeLock]);
+    const moveToNextStep = useCallback(() => {
+        console.log("moveToNextStep called. Current index:", currentStepIndex);
+        if (!routine) return;
+        const nextIndex = currentStepIndex + 1;
+        if (nextIndex >= routine.routine_steps.length) {
+            console.log("Session Finished!"); setIsSessionActive(false); setIsResting(false);
+            speak("Session finished."); releaseWakeLock(); navigate(`/log-session/${routineId}`);
+        } else {
+            const nextStepDetails = routine.routine_steps[nextIndex];
+            console.log("Moving to next drill:", nextStepDetails?.drill_name);
+            speak(nextStepDetails?.drill_name || 'Next Drill', 300);
+            setCurrentStepIndex(nextIndex); setIsResting(false);
+            setCurrentPhaseDuration(nextStepDetails?.duration_seconds || 1);
+            setTimerKey(prevKey => prevKey + 1);
+        }
+    }, [currentStepIndex, routine, navigate, routineId, speak, releaseWakeLock]);
 
-     const transitionToRest = useCallback(() => {
-         if (!currentStep || currentStepIndex < 0) return;
-         const restDuration = currentStep.rest_after_seconds;
-         const stepAfterRest = nextStep;
-         if (restDuration && restDuration > 0) {
-              console.log(`Drill finished. Starting ${restDuration}s rest.`);
-              speak(`Rest. Next: ${stepAfterRest?.drill_name || 'Session finished'}`, 500);
-              setIsResting(true); setCurrentPhaseDuration(restDuration); setTimerKey(prevKey => prevKey + 1);
-         } else {
-              console.log("Drill finished. No rest period, moving to next step.");
-              speak(stepAfterRest?.drill_name || 'Session finished', 300);
-              moveToNextStep();
-         }
-     }, [currentStep, currentStepIndex, nextStep, moveToNextStep, speak]);
+    const transitionToRest = useCallback(() => {
+        if (!currentStep || currentStepIndex < 0) return;
+        const restDuration = currentStep.rest_after_seconds;
+        const stepAfterRest = nextStep;
+        if (restDuration && restDuration > 0) {
+            console.log(`Drill finished. Starting ${restDuration}s rest.`);
+            speak(`Rest. Next: ${stepAfterRest?.drill_name || 'Session finished'}`, 500);
+            setIsResting(true); setCurrentPhaseDuration(restDuration); setTimerKey(prevKey => prevKey + 1);
+        } else {
+            // *** FIX APPLIED HERE ***
+            // The redundant 'speak' call was removed from this block.
+            // moveToNextStep is now solely responsible for announcing the next drill.
+            console.log("Drill finished. No rest period, moving directly to next step.");
+            moveToNextStep();
+        }
+    }, [currentStep, currentStepIndex, nextStep, moveToNextStep, speak]);
 
     // --- Called when the countdown timer completes ---
     const handleTimerComplete = () => {
@@ -137,7 +137,7 @@ function SessionPlayerPage() {
         const isPrepPhaseFinished = currentStepIndex === -1;
 
         if (isPrepPhaseFinished) {
-            playBeep(isBeepEnabled, endRestBeepFreq, 150); // Signal start of first drill
+            playBeep(isBeepEnabled, endRestBeepFreq, 150);
             if (firstStep) {
                 console.log("Starting first drill:", firstStep.drill_name);
                 speak(firstStep.drill_name, 200);
@@ -145,8 +145,7 @@ function SessionPlayerPage() {
                 setCurrentPhaseDuration(firstStep.duration_seconds || 1);
                 setTimerKey(prevKey => prevKey + 1);
             } else { setIsSessionActive(false); releaseWakeLock(); }
-        } else { // Normal activity or rest phase finished
-            // Beeps handled in onUpdate
+        } else {
             if (isResting) { moveToNextStep(); } else { transitionToRest(); }
         }
         return { shouldRepeat: false };
@@ -167,8 +166,8 @@ function SessionPlayerPage() {
         console.log("Pausing session."); setIsSessionActive(false); window.speechSynthesis.cancel(); releaseWakeLock();
     };
     const handleResumeSession = () => {
-         const isFinished = currentStepIndex >= (routine?.routine_steps?.length || 0);
-         if (!isFinished && timerKey > 0) { console.log("Resuming session."); requestWakeLock(); setIsSessionActive(true); }
+        const isFinished = currentStepIndex >= (routine?.routine_steps?.length || 0);
+        if (!isFinished && timerKey > 0) { console.log("Resuming session."); requestWakeLock(); setIsSessionActive(true); }
     };
 
     // --- Calculate dynamic colors and background ---
@@ -183,10 +182,10 @@ function SessionPlayerPage() {
     if (error) return <div className="text-center py-10 text-red-400">Error: {error}</div>;
     if (!routine) return <div className="text-center py-10 text-gray-400">Routine data unavailable.</div>;
 
-     const displayStep = isPrepPhase ? firstStep : currentStep;
-     const sessionEffectivelyFinished = !isPrepPhase && !displayStep && currentStepIndex >= routine.routine_steps.length;
-     if (sessionEffectivelyFinished) { return <div className="text-center py-10 text-gray-100">Session Finished!</div>; }
-     if (!displayStep && !isPrepPhase) { return <div className="text-center py-10 text-red-400">Error: Step data missing.</div>; }
+    const displayStep = isPrepPhase ? firstStep : currentStep;
+    const sessionEffectivelyFinished = !isPrepPhase && !displayStep && currentStepIndex >= routine.routine_steps.length;
+    if (sessionEffectivelyFinished) { return <div className="text-center py-10 text-gray-100">Session Finished!</div>; }
+    if (!displayStep && !isPrepPhase) { return <div className="text-center py-10 text-red-400">Error: Step data missing.</div>; }
 
     // --- Main Player UI ---
     return (
@@ -207,7 +206,7 @@ function SessionPlayerPage() {
                     trailColor={trailColorHex}
                     onComplete={handleTimerComplete}
                     onUpdate={(remainingTime) => {
-                        if (!isBeepEnabled || isPrepPhase) return; // Skip beeps if disabled or during prep
+                        if (!isBeepEnabled || isPrepPhase) return;
                         if (!isResting && (remainingTime === 3 || remainingTime === 2 || remainingTime === 1)) { playBeep(isBeepEnabled, warningBeepFreq, 150); }
                         if (isResting && (remainingTime === 3 || remainingTime === 2)) { playBeep(isBeepEnabled, warningBeepFreq, 150); }
                         if (isResting && remainingTime === 1) { playBeep(isBeepEnabled, endRestBeepFreq, 150); }
@@ -215,9 +214,9 @@ function SessionPlayerPage() {
                 >
                     {({ remainingTime }) => (
                         <div className="flex flex-col items-center justify-center h-full">
-                             <div className="text-5xl font-bold">
-                                 {isSessionActive ? formatTime(remainingTime) : formatTime(firstStep?.duration_seconds)}
-                             </div>
+                            <div className="text-5xl font-bold">
+                                {isSessionActive ? formatTime(remainingTime) : formatTime(firstStep?.duration_seconds)}
+                            </div>
                             <div className={`text-lg font-semibold uppercase ${isPrepPhase ? 'text-amber-300' : (isResting ? 'text-blue-300' : 'text-emerald-300')}`}>
                                 {!isSessionActive && currentStepIndex === -1 ? 'Ready' : (isPrepPhase ? 'Starting...' : (isResting ? 'Rest' : 'Activity'))}
                             </div>
@@ -228,45 +227,45 @@ function SessionPlayerPage() {
 
             {/* Drill Info Section */}
             <div className="text-center mb-6 px-4 py-4 bg-black bg-opacity-20 rounded-lg max-w-lg w-full min-h-[100px]">
-                 <h4 className="text-2xl font-semibold mb-2 text-white">
-                     {isPrepPhase || !isSessionActive ? "First Drill" : (isResting ? `Rest` : (displayStep?.drill_name || 'N/A'))}
-                 </h4>
-                 {!isResting && !isPrepPhase && displayStep && (
-                     <>
-                         {displayStep.notes && displayStep.notes.trim() !== '' && ( <p className="text-gray-300 mb-1">Notes: {displayStep.notes}</p> )}
-                         <p className="text-gray-300">Target: {displayStep?.duration_seconds ? `${displayStep.duration_seconds}s` : (displayStep?.reps_target ? `${displayStep.reps_target} reps` : 'N/A')}</p>
-                     </>
-                 )}
-                  {(isPrepPhase || (!isSessionActive && currentStepIndex === -1)) && (
-                      <p className="text-gray-300 mt-2">{firstStep?.drill_name || 'N/A'}</p>
-                  )}
+                <h4 className="text-2xl font-semibold mb-2 text-white">
+                    {isPrepPhase || !isSessionActive ? "First Drill" : (isResting ? `Rest` : (displayStep?.drill_name || 'N/A'))}
+                </h4>
+                {!isResting && !isPrepPhase && displayStep && (
+                    <>
+                        {displayStep.notes && displayStep.notes.trim() !== '' && ( <p className="text-gray-300 mb-1">Notes: {displayStep.notes}</p> )}
+                        <p className="text-gray-300">Target: {displayStep?.duration_seconds ? `${displayStep.duration_seconds}s` : (displayStep?.reps_target ? `${displayStep.reps_target} reps` : 'N/A')}</p>
+                    </>
+                )}
+                 {(isPrepPhase || (!isSessionActive && currentStepIndex === -1)) && (
+                    <p className="text-gray-300 mt-2">{firstStep?.drill_name || 'N/A'}</p>
+                )}
             </div>
 
              {/* Next Up Section */}
              <div className="text-center text-gray-400 mb-8 text-lg min-h-[1.5em]">
-                 {!isPrepPhase && ( isResting ? ( nextStep ? `Next Drill: ${nextStep.drill_name}` : 'Last Rest!' ) : ( (currentStep?.rest_after_seconds && currentStep.rest_after_seconds > 0) ? `Next: Rest (${currentStep.rest_after_seconds}s)` : (nextStep ? `Next Drill: ${nextStep.drill_name}` : 'Final Drill!') ) )}
+                {!isPrepPhase && ( isResting ? ( nextStep ? `Next Drill: ${nextStep.drill_name}` : 'Last Rest!' ) : ( (currentStep?.rest_after_seconds && currentStep.rest_after_seconds > 0) ? `Next: Rest (${currentStep.rest_after_seconds}s)` : (nextStep ? `Next Drill: ${nextStep.drill_name}` : 'Final Drill!') ) )}
              </div>
 
             {/* Toggle Switches */}
             <div className="flex items-center justify-center space-x-6 mb-8 text-sm">
-                 {/* TTS Toggle */}
-                 <div className="flex items-center space-x-2">
+                {/* TTS Toggle */}
+                <div className="flex items-center space-x-2">
                     <input type="checkbox" id="tts-toggle" checked={isTtsEnabled} onChange={(e) => setIsTtsEnabled(e.target.checked)} className="form-checkbox h-5 w-5 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500 focus:ring-offset-gray-800 cursor-pointer"/>
                     <label htmlFor="tts-toggle" className="font-medium text-gray-300 cursor-pointer"> Announce Drill </label>
-                 </div>
-                 {/* Beep Toggle */}
-                 <div className="flex items-center space-x-2">
-                     <input type="checkbox" id="beep-toggle" checked={isBeepEnabled} onChange={(e) => setIsBeepEnabled(e.target.checked)} className="form-checkbox h-5 w-5 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500 focus:ring-offset-gray-800 cursor-pointer"/>
-                     <label htmlFor="beep-toggle" className="font-medium text-gray-300 cursor-pointer"> Audio Cues </label>
-                 </div>
+                </div>
+                {/* Beep Toggle */}
+                <div className="flex items-center space-x-2">
+                    <input type="checkbox" id="beep-toggle" checked={isBeepEnabled} onChange={(e) => setIsBeepEnabled(e.target.checked)} className="form-checkbox h-5 w-5 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500 focus:ring-offset-gray-800 cursor-pointer"/>
+                    <label htmlFor="beep-toggle" className="font-medium text-gray-300 cursor-pointer"> Audio Cues </label>
+                </div>
             </div>
 
             {/* Controls Section */}
             <div className="flex flex-wrap justify-center gap-4">
-                  {!isSessionActive && currentStepIndex === -1 && ( <button onClick={handleStartSession} className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-lg shadow-md hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-emerald-500 min-w-[120px] text-center"> Start Session </button> )}
-                  {isSessionActive && ( <button onClick={handlePauseSession} className="px-6 py-3 bg-yellow-600 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-yellow-500 min-w-[120px] text-center"> Pause </button> )}
-                  {!isSessionActive && currentStepIndex !== -1 && !sessionEffectivelyFinished && ( <button onClick={handleResumeSession} className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-lg shadow-md hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-emerald-500 min-w-[120px] text-center"> Resume </button> )}
-                  {isSessionActive && ( <button onClick={isResting ? moveToNextStep : transitionToRest} className="px-6 py-3 bg-gray-600 text-white font-semibold rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-gray-500 min-w-[120px] text-center"> Skip {isResting ? 'Rest' : 'Drill'} </button> )}
+                 {!isSessionActive && currentStepIndex === -1 && ( <button onClick={handleStartSession} className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-lg shadow-md hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-emerald-500 min-w-[120px] text-center"> Start Session </button> )}
+                 {isSessionActive && ( <button onClick={handlePauseSession} className="px-6 py-3 bg-yellow-600 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-yellow-500 min-w-[120px] text-center"> Pause </button> )}
+                 {!isSessionActive && currentStepIndex !== -1 && !sessionEffectivelyFinished && ( <button onClick={handleResumeSession} className="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-lg shadow-md hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-emerald-500 min-w-[120px] text-center"> Resume </button> )}
+                 {isSessionActive && ( <button onClick={isResting ? moveToNextStep : transitionToRest} className="px-6 py-3 bg-gray-600 text-white font-semibold rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-gray-500 min-w-[120px] text-center"> Skip {isResting ? 'Rest' : 'Drill'} </button> )}
             </div>
 
         </div>
